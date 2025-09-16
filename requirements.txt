@@ -1,0 +1,11 @@
+streamlit>=1.25.0
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.2
+matplotlib>=3.7
+sentence-transformers>=2.2.2
+faiss-cpu>=1.7.4         # if pip fails, use conda
+python-dotenv>=1.0.0
+pydantic>=1.10
+pinecone-client>=2.2.0   # optional
+google-generativeai>=0.0.3  # optional, if you use the official client (or use your own wrapper)
