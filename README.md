@@ -119,7 +119,6 @@ supermate/
 ├── rag.py              # 💬 RAG implementation connecting Gemini to the vector store
 ├── utils.py            # 🛠️ Helper functions for data loading, cleaning, etc.
 ├── requirements.txt    # 📦 List of Python dependencies for the project
-├── .env.example        # 📝 Template for environment variables
 ├── README.md           # 📄 You are here!
 ├── LICENSE             # 📜 Project license file (e.g., MIT)
 └── data/
