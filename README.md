@@ -126,7 +126,6 @@ supermate/
     └── sample_price_history.csv  # Example price history data for simulations
 ```
 
-*(Note: I added `.env.example` which is a good practice)*
 
 ---
 
