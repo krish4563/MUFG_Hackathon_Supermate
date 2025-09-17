@@ -9,128 +9,147 @@ from rag import rag_answer, add_documents, init_indexer
 
 load_dotenv()
 
-st.set_page_config(page_title="Agentic RAG Prototype", layout="wide")
-st.title("Agentic RAG — Prototype")
+st.set_page_config(page_title="AI Superannuation Advisor", layout="wide")
+st.title("AI Investment Advisor — Superannuation")
 
-# --- Onboarding Step (collect user info once) ---
+# --- Onboarding Step (Retirement / Superannuation focus) ---
 if "user_profile" not in st.session_state:
     with st.form("onboarding_form"):
-        st.subheader("Tell us about yourself before we start")
-        age = st.number_input("Your age", 18, 100, 30)
-        goal = st.text_input("Your main financial goal (e.g., retire early, buy house, etc.)")
+        st.subheader("Tell us about your retirement plan")
+        age = st.number_input("Your current age", 18, 70, 30)
+        retirement_age = st.number_input("Planned retirement age", 40, 75, 60)
+        super_balance = st.number_input("Current superannuation balance (₹)", min_value=0.0, value=500000.0, step=5000.0)
+        monthly_contribution = st.number_input("Planned monthly contribution (₹)", min_value=0.0, value=20000.0, step=500.0)
         risk = st.selectbox("Risk preference", ["Low", "Moderate", "High"])
-        submitted = st.form_submit_button("Save Profile")
+        goal = st.text_input("Retirement goal (short): e.g., 'Comfortable living' / 'Travel' / 'Healthcare security'")
+        desired_annual_income = st.number_input("Desired annual retirement income (₹) — optional", min_value=0.0, value=0.0, step=1000.0)
+
+        # uploads on onboarding page
+        st.markdown("### Upload your financial data (recommended)")
+        txn_file = st.file_uploader("Transactions (CSV / XLSX) — optional", type=["csv", "xlsx"])
+        prices_file = st.file_uploader("Price history CSV (date,close) — optional", type=["csv"])
+
+        submitted = st.form_submit_button("Save profile & continue")
         if submitted:
             st.session_state["user_profile"] = {
-                "age": age,
+                "age": int(age),
+                "retirement_age": int(retirement_age),
+                "super_balance": float(super_balance),
+                "monthly_contribution": float(monthly_contribution),
+                "risk": risk,
                 "goal": goal,
-                "risk": risk
+                "desired_annual_income": float(desired_annual_income),
+                "txn_file": txn_file,
+                "prices_file": prices_file,
             }
             st.success("Profile saved! Scroll down to start chatting.")
-else:
-    st.sidebar.write("✅ Profile loaded")
-    st.sidebar.json(st.session_state["user_profile"])
 
-# Sidebar: user info
-st.sidebar.header("User Profile")
-user_id = st.sidebar.text_input("User ID", value="user_1")
-initial_capital = st.sidebar.number_input("Initial capital (₹)", value=100000.0, step=1000.0)
-years = st.sidebar.slider("Projection years", 5, 40, 20)
+if "user_profile" in st.session_state:
+    st.sidebar.header("Your retirement profile")
+    st.sidebar.json({k: v for k, v in st.session_state["user_profile"].items() if k not in ("txn_file", "prices_file")})
 
-# Uploads
-st.sidebar.header("Upload data")
-txn_file = st.sidebar.file_uploader("Upload transactions dataset (Excel/CSV)", type=["csv", "xlsx"])
-prices_file = st.sidebar.file_uploader("Upload price history CSV (date,close)", type=["csv"])
-
-# Chat section
-st.header("Chat with your financial agent")
+# Chat region
+st.header("Chat with your Superannuation Advisor")
 
 if "chat_history" not in st.session_state:
-    st.session_state["chat_history"] = []
+    st.session_state["chat_history"] = []  # list of {"role":"user"/"assistant", "content": str}
 
-query = st.text_input("Enter your question")
-
-col1, col2 = st.columns(2)
-
-# Load data
-df_txn, prices_df = None, None
-if txn_file:
-    df_txn = load_user_transactions(txn_file)
-    st.sidebar.success(f"Loaded transactions: {len(df_txn)} rows")
-
-if prices_file:
-    prices_df = load_prices_csv(prices_file)
-    st.sidebar.success(f"Loaded prices: {len(prices_df)} rows")
-
-# Initialize indexer once
+# initialize indexer
 if "indexer_init" not in st.session_state:
     init_indexer()
     st.session_state["indexer_init"] = True
 
-# Preview
-with col1:
-    st.subheader("Transactions preview")
-    if df_txn is not None:
-        st.dataframe(df_txn.head(10))
-    else:
-        st.info("Upload transactions to enable Behavior & Fraud agents.")
+# load uploaded files (from onboarding stored in session)
+df_txn = None
+prices_df = None
+if "user_profile" in st.session_state:
+    prof = st.session_state["user_profile"]
+    if prof.get("txn_file") is not None:
+        df_txn = load_user_transactions(prof["txn_file"])
+    if prof.get("prices_file") is not None:
+        prices_df = load_prices_csv(prof["prices_file"])
 
-with col2:
-    st.subheader("Price data preview")
-    if prices_df is not None:
-        st.dataframe(prices_df.head(10))
-    else:
-        st.info("Upload prices CSV to enable Portfolio agent.")
+# Chat input
+query = st.chat_input("Ask about your superannuation plan (e.g., 'Am I on track to retire at 60?')")
 
-# Run agents + chat
-if st.button("Ask / Run agents"):
-    # Behavior agent
-    behavior_agent = BehaviorAgent(df_txn)
-    behavior_agent.fit()
-    behavior_profile = behavior_agent.profile_user(user_id)
+# Show history on left, chat box on right
+left_col, right_col = st.columns([1, 3])
 
-    # Fraud agent
-    fraud_agent = FraudAgent(df_txn)
-    fraud_out = fraud_agent.detect_user_anomalies(user_id)
+with left_col:
+    st.subheader("Recent conversation")
+    for msg in st.session_state["chat_history"][-10:]:
+        if msg["role"] == "user":
+            st.markdown(f"**You:** {msg['content']}")
+        else:
+            st.markdown(f"**Advisor:** {msg['content']}")
 
-    # Portfolio agent
-    portfolio_agent = PortfolioAgent(prices_df)
-    portfolio_out = portfolio_agent.run_simulation(
-        initial_capital=initial_capital, years=years, n_sim=500
-    ) or {}
+with right_col:
+    st.subheader("Conversation")
 
-    # Arbiter merge
-    combined = merge_agent_outputs(behavior_profile, fraud_out, portfolio_out)
+    if query:
+        # append user message
+        st.session_state["chat_history"].append({"role": "user", "content": query})
+        st.session_state["chat_history"] = st.session_state["chat_history"][-10:]
 
-    # Add user query to memory
-    st.session_state['chat_history'].append({"role": "user", "content": query})
+        # Run agents
+        behavior_profile = {"behavior_cluster": None}
+        fraud_out = {"anomaly_score": 0, "alerts": []}
+        portfolio_out = {}
 
-    # Trim to last 10 messages (5 Q/A pairs)
-    st.session_state["chat_history"] = st.session_state["chat_history"][-10:]
+        # pick user_id
+        user_id = "user_1"
+        if df_txn is not None:
+            uids = df_txn["user_id"].unique()
+            if len(uids) == 1:
+                user_id = uids[0]
 
-    # Add docs for RAG
-    docs = [msg["content"] for msg in st.session_state["chat_history"]]
-    metadatas = [{"role": msg["role"]} for msg in st.session_state["chat_history"]]
-    add_documents(docs, metadatas)
+            behavior_agent = BehaviorAgent(df_txn)
+            behavior_agent.fit()
+            behavior_profile = behavior_agent.profile_user(user_id)
 
-    # Generate RAG-based personalized LLM answer
-    rag_resp = rag_answer(
-        query if query else "Provide financial plan summary for this user.",
-        user_id,
-        behavior_profile,
-        fraud_out,
-        portfolio_out,
-        combined,
-        user_profile=st.session_state.get("user_profile", {})
-    )
+            fraud_agent = FraudAgent(df_txn)
+            fraud_out = fraud_agent.detect_user_anomalies(user_id)
 
-    # Add assistant response to memory
-    st.session_state['chat_history'].append({"role": "assistant", "content": rag_resp})
+        # Portfolio
+        profile = st.session_state.get("user_profile", {})
+        years_left = max(1, profile.get("retirement_age", 65) - profile.get("age", 30))
 
-# --- Show Chat History like GPT ---
-st.subheader("Conversation")
-for msg in st.session_state["chat_history"]:
+        portfolio_agent = PortfolioAgent(prices_df)
+        portfolio_out = portfolio_agent.run_superannuation_simulation(
+            initial_balance=profile.get("super_balance", 0.0),
+            monthly_contribution=profile.get("monthly_contribution", 0.0),
+            years=years_left,
+            n_sim=1000,
+        )
+
+        # Arbiter
+        combined = merge_agent_outputs(behavior_profile, fraud_out, portfolio_out)
+
+        # Add docs for RAG
+        docs = [m["content"] for m in st.session_state["chat_history"]]
+        metadatas = [{"role": m["role"]} for m in st.session_state["chat_history"]]
+        add_documents(docs, metadatas)
+
+        # RAG answer
+        rag_resp = rag_answer(
+            query,
+            user_id,
+            behavior_profile,
+            fraud_out,
+            portfolio_out,
+            combined,
+            user_profile=profile,
+        )
+
+        st.session_state["chat_history"].append({"role": "assistant", "content": rag_resp})
+        st.session_state["chat_history"] = st.session_state["chat_history"][-10:]
+        st.rerun()
+
+# show conversation (bottom)
+st.write("---")
+st.subheader("Full remembered chat (last 5 Q/A pairs)")
+for msg in st.session_state["chat_history"][-10:]:
     if msg["role"] == "user":
         st.markdown(f"**You:** {msg['content']}")
     else:
-        st.markdown(f"**Assistant:** {msg['content']}")
+        st.markdown(f"**Advisor:** {msg['content']}")

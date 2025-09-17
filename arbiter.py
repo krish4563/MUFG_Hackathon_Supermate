@@ -1,34 +1,53 @@
 # arbiter.py
 def merge_agent_outputs(behavior_out: dict, fraud_out: dict, portfolio_out: dict):
-    # simple weighted scoring prototype
+    """
+    Combines behavior, fraud and portfolio sims into a small human-friendly verdict.
+    portfolio_out is expected to be a dict with strategy keys ("Conservative", "Balanced", "Growth")
+    and each contains sim_summary with median/p10/p90.
+    """
+    # base score
     score = 0.0
-    weights = {"behavior": 0.2, "fraud": 0.4, "portfolio": 0.4}
-
-    # behavior cluster: safer clusters -> add positive
+    # behavior: prefer conservative behaviour
     bcluster = behavior_out.get("behavior_cluster")
     if bcluster is None:
-        score += 0
+        score += 0.0
     else:
-        # cluster 0 -> conservative (score +0.1), 2 -> risky (-0.1)
-        score += {0: 0.1, 1: 0.0, 2: -0.1}.get(bcluster, 0)*weights['behavior']
+        # cluster mapping: 0 -> conservative, 1 -> risky (example)
+        score += {0: 0.1, 1: -0.05}.get(bcluster, 0.0)
 
-    # fraud: higher anomaly_score reduces score
+    # fraud risk reduces score
     anomaly = fraud_out.get("anomaly_score", 0)
-    score += max(-1, -anomaly) * weights['fraud']  # anomaly ∈ [0..], negative contribution
+    score -= max(0.0, anomaly) * 0.5
 
-    # portfolio: if median outcome > initial -> boost
-    port_summary = portfolio_out.get("sim_summary", {})
-    median = port_summary.get("median", 0)
-    # We assume initial capital normalized e.g. 100k
-    score += (median / (1 + median)) * weights['portfolio'] if median else 0
+    # portfolio contribution: take best median among strategies and scale
+    best_median = 0.0
+    if portfolio_out:
+        medians = []
+        for k, v in portfolio_out.items():
+            s = v.get("sim_summary", {})
+            med = s.get("median", 0)
+            medians.append(med)
+        if medians:
+            best_median = max(medians)
+            # relative boost if best_median > initial (assume initial positive)
+            score += 0.2 if best_median > 0 else 0.0
 
-    # normalized final decision
-    decision = "Hold"
-    if score > 0.5:
-        decision = "Aggressive increase"
-    elif score < -0.2:
-        decision = "Defensive reduce risk"
+    # compute human recommendation
+    if score >= 0.25:
+        decision = "On Track"
+    elif score >= 0.0:
+        decision = "Review & Adjust"
     else:
-        decision = "Hold / Monitor"
+        decision = "At Risk - Action Required"
 
-    return {"score": float(score), "decision": decision}
+    # simple message
+    message = {
+        "score": float(score),
+        "decision": decision,
+        "notes": {
+            "behavior_summary": f"cluster={bcluster}",
+            "fraud_anomaly_score": float(anomaly),
+            "best_strategy_median": float(best_median)
+        }
+    }
+    return message
